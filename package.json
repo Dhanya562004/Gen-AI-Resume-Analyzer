@@ -11,7 +11,7 @@
   },
   "keywords": [],
   "type": "module",
-  "author": "",
+  "author": "Dhanya",
   "license": "ISC",
   "dependencies": {
     "@google/genai": "^1.50.1",
