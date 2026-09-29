@@ -1,81 +1,49 @@
 # 🤖 GenAI Resume Analyzer & Interview Prep
 
-An intelligent web application built with the **MERN Stack** (MongoDB, Express, React, Node.js) and **Grok AI**.
+An intelligent web application built with **Streamlit**, **Google Gemini AI**, and the **MERN Stack** (MongoDB, Express, React, Node.js).
 
 Upload your **Resume PDF**, provide your **Self Description**, and paste the **Job Description** to get:
-- 📄 An **ATS-Friendly Resume** (downloadable PDF)
-- 📊 A **Match Score** (0–100%) comparing your resume to the job description
+- 📄 An **ATS-Friendly Resume** (downloadable PDF & HTML)
+- 📊 A **Match Score** (0–100%) comparing your resume to the target job description
 - 🧠 **Technical Interview Questions** with sample answers and explanations
-- 💬 **Behavioral Interview Questions** with structured answer guidelines
-- 🔍 **Skill Gap Analysis** highlighting missing skills and their priority level
+- 💬 **Behavioral Interview Questions** with structured STAR method guidelines
+- 🔍 **Skill Gap Analysis** highlighting missing skills and their priority level (High/Medium/Low)
 - 📅 A **Personalized Preparation Plan** broken down day-by-day
 
 ---
 
 ## 🌟 Key Features
 
-1. **Secure User Authentication**: Sign up and log in using Email/Password or **Google Sign-In** (Firebase).
-2. **Resume PDF Text Extraction**: Automatically extracts text content from uploaded PDF resumes.
-3. **AI-Powered Analysis**: Generates an ATS-compliant resume and detailed feedback tailored specifically to your target job.
-4. **Interactive Reports**: View detailed interview preparation materials and download your newly formatted resume.
-5. **Saved History**: All generated analysis reports are saved to your account so you can revisit them anytime.
+1. **Streamlit One-Click App Deployment**: Fast, responsive web UI with glassmorphism styling and session state history.
+2. **API Key Integration**: Seamless support for Google Gemini API keys (starting with `AQ.Ab......` or `AIza...`) and Groq AI keys (`gsk_...`).
+3. **Resume PDF Text Extraction**: Automatically extracts text content from uploaded PDF resumes using `pypdf` and `pdfplumber`.
+4. **AI-Powered Analysis**: Generates an ATS-compliant resume and detailed feedback tailored specifically to your target job.
+5. **Interactive Reports & Downloads**: Download newly formatted ATS Resumes directly as PDF files compiled with `xhtml2pdf`.
+6. **MERN Stack & Streamlit Ready**: Run locally or deploy directly to Streamlit Community Cloud / Vercel / Render.
 
 ---
 
 ## 🛠️ Tech Stack
 
-### Frontend
-- **Framework**: React.js (Vite)
-- **Routing**: React Router DOM
-- **State Management**: Context API (Auth & Interview contexts)
-- **Styling**: Vanilla CSS & SCSS
+### Streamlit App (Python)
+- **Framework**: Streamlit (v1.30+)
+- **AI Models**: Google Gemini AI (`google-genai` SDK / `gemini-2.5-flash`) & Groq AI
+- **PDF Processing**: `pypdf` & `pdfplumber` (text extraction)
+- **PDF Generation**: `xhtml2pdf` & `reportlab` (HTML to PDF compilation)
 
-### Backend
-- **Server**: Node.js & Express.js
-- **Database**: MongoDB & Mongoose
-- **Authentication**: JWT (httpOnly cookie) & Firebase Admin SDK
-- **File Processing**: Multer (upload handling) & `pdf-parse` (PDF text extraction)
-- **PDF Generation**: Puppeteer (Converts AI HTML to ATS PDF)
-- **AI Engine**: Grok AI (xAI API) & Zod (Response schema validation)
+### MERN Stack (Node.js/React)
+- **Frontend**: React.js (Vite), React Router DOM, Context API
+- **Backend**: Express.js, MongoDB, Mongoose, JWT & Firebase Auth
+- **AI Services**: Grok / Gemini AI Service Integration
 
 ---
 
-## 📂 Project Structure
-
-```
-Gen-AI-Resume-Analyzer/
-├── Backend/                 # Backend REST API
-│   ├── config/              # Database configuration
-│   ├── controllers/         # Auth & interview analysis logic
-│   ├── middlewares/         # JWT verification & PDF file upload handling
-│   ├── models/              # User, Report, & Token blacklist schemas
-│   ├── routes/              # Auth & Interview route definitions
-│   └── services/            # Grok AI prompt integration & email service
-│
-├── Frontend/mern/           # React frontend client
-│   ├── src/
-│   │   ├── Auth/            # Login, Signup, Firebase Google Auth, & Auth Context
-│   │   └── interview/       # Dashboard, Resume Upload, Reports & Results
-│   └── package.json
-│
-├── .gitignore
-├── package.json
-└── README.md
-```
-
----
-
-## 🚀 Getting Started
+## 🚀 Quick Start (Streamlit Application)
 
 ### 1. Prerequisites
-- Node.js (v18 or higher)
-- MongoDB (Local instance or MongoDB Atlas)
-- Grok AI API Key ([xAI Console](https://console.x.ai/))
-- Firebase Project ([Firebase Console](https://console.firebase.google.com/))
+- Python 3.9 or higher
 
----
-
-### 2. Installation
+### 2. Installation & Running Locally
 
 1. **Clone the Repository**
    ```bash
@@ -83,48 +51,53 @@ Gen-AI-Resume-Analyzer/
    cd Gen-AI-Resume-Analyzer
    ```
 
-2. **Setup Backend**
+2. **Install Python Dependencies**
    ```bash
-   cd Backend
-   npm install
+   pip install -r requirements.txt
    ```
 
-   Create a `.env` file in the `Backend/` directory:
-   ```env
-   PORT=5000
-   MONGO_URI=your_mongodb_connection_string
-   JWT_SECRET=your_secret_jwt_key
-   JWT_EXPIRES_IN=7d
-   GROK_API_KEY=your_grok_ai_api_key
-
-   FIREBASE_PROJECT_ID=your_firebase_project_id
-   FIREBASE_CLIENT_EMAIL=your_firebase_client_email
-   FIREBASE_PRIVATE_KEY="your_firebase_private_key"
-   ```
-
-   Run the backend server:
+3. **Run the Streamlit Application**
    ```bash
-   npm run dev
+   streamlit run app.py
    ```
 
-3. **Setup Frontend**
-   ```bash
-   cd ../Frontend/mern
-   npm install
-   ```
+4. **Use the Application**
+   - Open your browser at `http://localhost:8501`.
+   - In the sidebar, paste your API Key starting with `AQ.Ab......` (or Google Gemini / Groq key).
+   - Upload your Resume PDF, provide a brief self description, and paste the job description.
+   - Click **🚀 Analyze Profile & Generate Prep Report** to get your ATS Resume PDF, match score, and preparation roadmap!
 
-   Create a `.env` file in `Frontend/mern/`:
-   ```env
-   VITE_FIREBASE_API_KEY=your_firebase_api_key
-   VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-   VITE_FIREBASE_PROJECT_ID=your_firebase_project_id
-   VITE_FIREBASE_APP_ID=your_firebase_app_id
-   ```
+---
 
-   Run the frontend application:
-   ```bash
-   npm run dev
-   ```
+## 📂 Project Structure
+
+```
+Gen-AI-Resume-Analyzer/
+├── app.py                   # Streamlit main application & UI
+├── ai_service.py            # AI Service for Google Gemini (AQ.Ab...) & Groq API
+├── pdf_service.py           # PDF text extraction & HTML-to-PDF compilation
+├── requirements.txt         # Python dependencies for Streamlit deployment
+├── Backend/                 # Node.js Express REST API backend
+│   ├── config/              # Database configuration
+│   ├── controllers/         # Auth & interview analysis logic
+│   ├── middlewares/         # JWT verification & PDF file upload handling
+│   ├── models/              # User, Report, & Token blacklist schemas
+│   ├── routes/              # Auth & Interview route definitions
+│   └── services/            # AI prompt integration
+├── Frontend/mern/           # React frontend client
+├── README.md
+└── package.json
+```
+
+---
+
+## 🌐 Deploying on Streamlit Cloud
+
+1. Push this repository to GitHub.
+2. Go to [Streamlit Community Cloud](https://share.streamlit.io/).
+3. Connect your GitHub account and select repository: `Dhanya562004/Gen-AI-Resume-Analyzer`.
+4. Set Main File Path to: `app.py`.
+5. Click **Deploy!**
 
 ---
 
