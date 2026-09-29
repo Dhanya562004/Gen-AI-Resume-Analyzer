@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import streamlit as st
 from ai_service import generate_interview_report, generate_resume_html
 from pdf_service import extract_text_from_pdf, generate_pdf_from_html
@@ -131,15 +132,22 @@ with st.sidebar:
     st.image("https://img.icons8.com/color/96/000000/resume.png", width=64)
     st.markdown("### ⚙️ Application Settings")
 
-    # Check for API key in Streamlit secrets
-    secret_key = ""
-    try:
-        if "GEMINI_API_KEY" in st.secrets:
-            secret_key = st.secrets["GEMINI_API_KEY"]
-        elif "GROQ_API_KEY" in st.secrets:
-            secret_key = st.secrets["GROQ_API_KEY"]
-    except Exception:
-        pass
+    # Check for API key in Environment variables or Streamlit secrets
+    secret_key = (
+        os.getenv("GEMINI_API_KEY", "").strip()
+        or os.getenv("GROQ_API_KEY", "").strip()
+        or os.getenv("XAI_API_KEY", "").strip()
+    )
+    if not secret_key:
+        try:
+            if "GEMINI_API_KEY" in st.secrets:
+                secret_key = st.secrets["GEMINI_API_KEY"]
+            elif "GROQ_API_KEY" in st.secrets:
+                secret_key = st.secrets["GROQ_API_KEY"]
+            elif "XAI_API_KEY" in st.secrets:
+                secret_key = st.secrets["XAI_API_KEY"]
+        except Exception:
+            pass
 
     api_key_input = st.text_input(
         "🔑 Enter API Key",
@@ -151,7 +159,7 @@ with st.sidebar:
 
     model_choice = st.selectbox(
         "🤖 Select Model",
-        options=["gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-pro"],
+        options=["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
         index=0,
     )
 

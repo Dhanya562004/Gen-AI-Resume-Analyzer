@@ -1,8 +1,23 @@
 import json
+import os
 import re
+import warnings
 import requests
-from google import genai
-from google.genai import types
+
+try:
+    from google import genai
+    from google.genai import types
+    HAS_GENAI_SDK = True
+except ImportError:
+    HAS_GENAI_SDK = False
+
+try:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import google.generativeai as genai_legacy
+    HAS_LEGACY_SDK = True
+except ImportError:
+    HAS_LEGACY_SDK = False
 
 
 def clean_json_string(text: str) -> str:
@@ -25,14 +40,22 @@ def clean_json_string(text: str) -> str:
     return text
 
 
-def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-1.5-flash") -> str:
+def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.5-flash") -> str:
     """
     Calls Google Gemini API, Groq, or xAI API depending on key type.
     Supports Google Gemini API keys starting with 'AQ.Ab...', 'AIza...', etc.
+    Reads GEMINI_API_KEY from environment if api_key is empty.
     """
-    api_key = api_key.strip()
+    api_key = (api_key or "").strip()
     if not api_key:
-        raise ValueError("API Key is missing. Please enter your API Key in the sidebar.")
+        api_key = (
+            os.getenv("GEMINI_API_KEY", "").strip()
+            or os.getenv("GROQ_API_KEY", "").strip()
+            or os.getenv("XAI_API_KEY", "").strip()
+        )
+
+    if not api_key:
+        raise ValueError("API Key is missing. Please enter your API Key in the sidebar or configure GEMINI_API_KEY in environment/secrets.")
 
     # 1. Groq API Key
     if api_key.startswith("gsk_"):
@@ -71,8 +94,8 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-1.5-flash
         return res_json["choices"][0]["message"]["content"]
 
     # 3. Google Gemini API (Keys starting with AQ.Ab..., AIza..., etc.)
-    # Standard valid models in Google Gemini API
-    candidate_models = [model_name, "gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-pro"]
+    # Fallback model order prioritizing latest fast models
+    candidate_models = [model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
     clean_models = []
     for m in candidate_models:
         if m and m not in clean_models:
@@ -82,25 +105,62 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-1.5-flash
     all_errors = []
 
     for m in clean_models:
-        # Strategy A: Official google-genai SDK
-        try:
-            client = genai.Client(api_key=api_key)
-            response = client.models.generate_content(
-                model=m,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json"
-                ),
-            )
-            if response and response.text:
-                return response.text
-        except Exception as e:
-            err_msg = str(e)
-            if not primary_error:
-                primary_error = f"Gemini SDK ({m}): {err_msg}"
-            all_errors.append(f"SDK ({m}): {err_msg}")
+        # Strategy A: Official google-genai SDK (v1 / v2 SDK)
+        if HAS_GENAI_SDK:
+            try:
+                client = genai.Client(api_key=api_key)
+                response = client.models.generate_content(
+                    model=m,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json"
+                    ),
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                err_msg = str(e)
+                if not primary_error:
+                    primary_error = f"Gemini SDK ({m}): {err_msg}"
+                all_errors.append(f"SDK ({m}): {err_msg}")
 
-        # Strategy B: Gemini REST API v1beta
+        # Strategy B: Legacy google-generativeai SDK fallback
+        if HAS_LEGACY_SDK:
+            try:
+                genai_legacy.configure(api_key=api_key)
+                legacy_model = genai_legacy.GenerativeModel(
+                    model_name=m,
+                    generation_config={"response_mime_type": "application/json"}
+                )
+                resp = legacy_model.generate_content(prompt)
+                if resp and resp.text:
+                    return resp.text
+            except Exception as e:
+                all_errors.append(f"Legacy SDK ({m}): {e}")
+
+        # Strategy C: Gemini REST API v1
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1/models/{m}:generateContent?key={api_key}"
+            headers = {"Content-Type": "application/json"}
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"responseMimeType": "application/json"}
+            }
+            resp = requests.post(url, headers=headers, json=payload, timeout=60)
+            if resp.status_code == 200:
+                res_j = resp.json()
+                candidates = res_j.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts and "text" in parts[0]:
+                        return parts[0]["text"]
+            else:
+                err_text = f"HTTP {resp.status_code}: {resp.text}"
+                all_errors.append(f"REST v1 ({m}): {err_text}")
+        except Exception as e:
+            all_errors.append(f"REST v1 Exc ({m}): {e}")
+
+        # Strategy D: Gemini REST API v1beta
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
             headers = {"Content-Type": "application/json"}
@@ -118,17 +178,16 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-1.5-flash
                         return parts[0]["text"]
             else:
                 err_text = f"HTTP {resp.status_code}: {resp.text}"
-                if not primary_error:
-                    primary_error = f"Gemini REST ({m}): {err_text}"
-                all_errors.append(f"REST ({m}): {err_text}")
+                all_errors.append(f"REST v1beta ({m}): {err_text}")
         except Exception as e:
-            all_errors.append(f"REST Exc ({m}): {e}")
+            all_errors.append(f"REST v1beta Exc ({m}): {e}")
 
-    # If all fail, return clean primary error message
-    raise Exception(f"Gemini API Request Failed. Detail: {primary_error or all_errors[0]}")
+    # If all candidate models and strategies fail
+    err_detail = primary_error or (all_errors[0] if all_errors else "Unknown error")
+    raise Exception(f"Gemini API Request Failed across models ({', '.join(clean_models)}). Detail: {err_detail}")
 
 
-def generate_interview_report(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-1.5-flash") -> dict:
+def generate_interview_report(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-2.5-flash") -> dict:
     """
     Generates structured interview report JSON from candidate resume, self description, and job description.
     """
@@ -210,7 +269,7 @@ Important:
     return data
 
 
-def generate_resume_html(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-1.5-flash") -> str:
+def generate_resume_html(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-2.5-flash") -> str:
     """
     Generates ATS-Friendly Resume HTML string tailored to target job.
     """
