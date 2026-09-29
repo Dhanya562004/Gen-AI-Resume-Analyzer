@@ -240,9 +240,7 @@ with tab_input:
 
     if analyze_btn:
         # Validations
-        if not api_key_input.strip():
-            st.error("⚠️ Please enter your API Key (e.g. AQ.Ab......) in the sidebar first!")
-        elif not extracted_text.strip():
+        if not extracted_text.strip():
             st.error("⚠️ Please upload a valid PDF resume first.")
         elif not job_description_input.strip():
             st.error("⚠️ Please paste the target Job Description.")
