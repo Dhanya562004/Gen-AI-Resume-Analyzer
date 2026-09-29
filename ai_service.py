@@ -7,6 +7,8 @@ from google.genai import types
 
 def clean_json_string(text: str) -> str:
     """Cleans backticks, markdown formatting, and extracts raw JSON block."""
+    if not text:
+        return "{}"
     text = text.strip()
     if text.startswith("```json"):
         text = text[7:]
@@ -25,14 +27,14 @@ def clean_json_string(text: str) -> str:
 
 def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.5-flash") -> str:
     """
-    Calls Google Gemini API or Groq API depending on the API key type.
-    Handles key format starting with 'AQ.Ab...', 'AIza...', or 'gsk_'.
+    Calls Google Gemini API, Groq, or xAI API depending on key type.
+    Supports Google Gemini API keys starting with 'AQ.Ab...', 'AIza...', etc.
     """
     api_key = api_key.strip()
     if not api_key:
         raise ValueError("API Key is missing. Please enter your API Key in the sidebar.")
 
-    # Groq API Key
+    # 1. Groq API Key
     if api_key.startswith("gsk_"):
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -50,12 +52,44 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.5-flash
         res_json = resp.json()
         return res_json["choices"][0]["message"]["content"]
 
-    # Google Gemini API (AQ.Ab..., AIza..., etc.)
-    # Models to attempt in order of preference
-    models_to_try = [model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-    last_error = None
+    # 2. xAI Grok API Key
+    if api_key.startswith("xai-"):
+        url = "https://api.x.ai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "grok-beta",
+            "messages": [{"role": "user", "content": prompt}],
+            "response_format": {"type": "json_object"}
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        if resp.status_code != 200:
+            raise Exception(f"xAI API Error ({resp.status_code}): {resp.text}")
+        res_json = resp.json()
+        return res_json["choices"][0]["message"]["content"]
 
-    for m in dict.fromkeys(models_to_try):  # Preserve order, unique items
+    # 3. Google Gemini API (Keys starting with AQ.Ab..., AIza..., etc.)
+    # Clean list of supported Gemini models (excluding deprecated gemini-2.0-flash)
+    candidate_models = [
+        model_name,
+        "gemini-2.5-flash",
+        "gemini-3.8-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+    ]
+    # Filter out empty or deprecated names
+    valid_models = []
+    for m in candidate_models:
+        if m and m not in valid_models and "2.0-flash" not in m:
+            valid_models.append(m)
+
+    errors = []
+
+    # Attempt via SDK and REST endpoints across candidate models
+    for m in valid_models:
+        # Strategy A: SDK with JSON mime type
         try:
             client = genai.Client(api_key=api_key)
             response = client.models.generate_content(
@@ -68,27 +102,63 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.5-flash
             if response and response.text:
                 return response.text
         except Exception as e:
-            last_error = e
-            # Try REST API fallback for Gemini if SDK encounters error
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
-                headers = {"Content-Type": "application/json"}
-                payload = {
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"responseMimeType": "application/json"}
-                }
-                resp = requests.post(url, headers=headers, json=payload, timeout=60)
-                if resp.status_code == 200:
-                    res_j = resp.json()
-                    candidates = res_j.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        if parts:
-                            return parts[0].get("text", "")
-            except Exception as e_rest:
-                pass
+            errors.append(f"SDK JSON ({m}): {e}")
 
-    raise Exception(f"Failed to generate content with Gemini API Key. Details: {last_error}")
+        # Strategy B: SDK with standard text prompt
+        try:
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=m,
+                contents=prompt + "\n\nReturn response ONLY as raw valid JSON without markdown formatting.",
+            )
+            if response and response.text:
+                return response.text
+        except Exception as e:
+            errors.append(f"SDK Text ({m}): {e}")
+
+        # Strategy C: Direct Gemini REST API v1beta
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
+            headers = {"Content-Type": "application/json"}
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"responseMimeType": "application/json"}
+            }
+            resp = requests.post(url, headers=headers, json=payload, timeout=60)
+            if resp.status_code == 200:
+                res_j = resp.json()
+                candidates = res_j.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts and "text" in parts[0]:
+                        return parts[0]["text"]
+            else:
+                errors.append(f"REST v1beta ({m}): {resp.status_code} - {resp.text[:150]}")
+        except Exception as e:
+            errors.append(f"REST v1beta Exception ({m}): {e}")
+
+        # Strategy D: Direct Gemini REST API v1
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1/models/{m}:generateContent?key={api_key}"
+            headers = {"Content-Type": "application/json"}
+            payload = {
+                "contents": [{"parts": [{"text": prompt + "\nReturn ONLY valid JSON."}]}]
+            }
+            resp = requests.post(url, headers=headers, json=payload, timeout=60)
+            if resp.status_code == 200:
+                res_j = resp.json()
+                candidates = res_j.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts and "text" in parts[0]:
+                        return parts[0]["text"]
+            else:
+                errors.append(f"REST v1 ({m}): {resp.status_code} - {resp.text[:150]}")
+        except Exception as e:
+            errors.append(f"REST v1 Exception ({m}): {e}")
+
+    last_err_msg = errors[-1] if errors else "Unknown API Error"
+    raise Exception(f"Failed to generate content with Gemini API Key. Details: {last_err_msg}")
 
 
 def generate_interview_report(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-2.5-flash") -> dict:
@@ -159,7 +229,7 @@ CRITICAL QUESTION & STRUCTURE RULES:
    - preparationPlanSchema MUST contain exactly 10 days
 
 Important:
-- Return ONLY valid JSON. Do not include markdown code block backticks if possible, or keep inside standard JSON object format.
+- Return ONLY valid JSON. Do not include markdown code block backticks outside the JSON object.
 - Ensure all fields are filled with comprehensive, high-quality, actionable insights.
 """
 
