@@ -42,11 +42,11 @@ def clean_json_string(text: str) -> str:
 
 def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.0-flash") -> str:
     """
-    Calls Google Gemini API, Groq, or xAI API with automatic retries on 503 (high demand) and 429 errors.
+    Calls Google Gemini API, Groq, or xAI API with retries and clear diagnostics.
     Supports Google Gemini API keys starting with 'AQ.Ab...', 'AIza...', etc.
     Reads GEMINI_API_KEY from environment if api_key is empty.
     """
-    api_key = (api_key or "").strip()
+    api_key = (api_key or "").strip().strip("'").strip('"')
     if not api_key:
         api_key = (
             os.getenv("GEMINI_API_KEY", "").strip()
@@ -55,9 +55,9 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.0-flash
         )
 
     if not api_key:
-        raise ValueError("API Key is missing. Please enter your API Key in the sidebar or configure GEMINI_API_KEY in environment/secrets.")
+        raise ValueError("API Key is missing. Please enter your Google Gemini API key (starts with AIza... or AQ.Ab...) or Groq API key in the sidebar.")
 
-    # 1. Groq API Key
+    # 1. Groq API Key (starts with gsk_)
     if api_key.startswith("gsk_"):
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -75,7 +75,7 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.0-flash
         res_json = resp.json()
         return res_json["choices"][0]["message"]["content"]
 
-    # 2. xAI Grok API Key
+    # 2. xAI Grok API Key (starts with xai-)
     if api_key.startswith("xai-"):
         url = "https://api.x.ai/v1/chat/completions"
         headers = {
@@ -94,14 +94,12 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.0-flash
         return res_json["choices"][0]["message"]["content"]
 
     # 3. Google Gemini API
-    # High-capacity candidate models list
     candidate_models = [
         model_name,
         "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
-        "gemini-3.8-flash",
-        "gemini-2.5-flash",
         "gemini-1.5-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash-lite",
         "gemini-1.5-pro",
     ]
     clean_models = []
@@ -111,11 +109,11 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.0-flash
             if m_norm and m_norm not in clean_models:
                 clean_models.append(m_norm)
 
-    all_errors = []
+    model_errors = {}
 
     for m in clean_models:
-        for attempt in range(2):
-            # Strategy A1: google-genai SDK (JSON mode)
+        for retry in range(2):
+            # Strategy A: google-genai SDK (JSON mode)
             if HAS_GENAI_SDK:
                 try:
                     client = genai.Client(api_key=api_key)
@@ -129,13 +127,11 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.0-flash
                     if response and response.text:
                         return response.text
                 except Exception as e:
-                    err_str = str(e)
-                    all_errors.append(f"SDK JSON ({m}, retry {attempt}): {err_str}")
-                    if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
-                        time.sleep(1.5)
-                        continue
+                    err_msg = str(e)
+                    model_errors[m] = err_msg
 
-                # Strategy A2: google-genai SDK (Plain text fallback)
+            # Strategy B: google-genai SDK (Plain text mode)
+            if HAS_GENAI_SDK:
                 try:
                     client = genai.Client(api_key=api_key)
                     response = client.models.generate_content(
@@ -145,24 +141,10 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.0-flash
                     if response and response.text:
                         return response.text
                 except Exception as e:
-                    err_str = str(e)
-                    all_errors.append(f"SDK Plain ({m}, retry {attempt}): {err_str}")
+                    err_msg = str(e)
+                    model_errors[m] = err_msg
 
-            # Strategy B: Legacy google-generativeai SDK
-            if HAS_LEGACY_SDK:
-                try:
-                    genai_legacy.configure(api_key=api_key)
-                    legacy_model = genai_legacy.GenerativeModel(
-                        model_name=m,
-                        generation_config={"response_mime_type": "application/json"}
-                    )
-                    resp = legacy_model.generate_content(prompt)
-                    if resp and resp.text:
-                        return resp.text
-                except Exception as e:
-                    all_errors.append(f"Legacy SDK ({m}): {e}")
-
-            # Strategy C1: Gemini REST API v1 (JSON mode)
+            # Strategy C: Gemini REST API v1 (JSON mode)
             try:
                 url = f"https://generativelanguage.googleapis.com/v1/models/{m}:generateContent?key={api_key}"
                 headers = {"Content-Type": "application/json"}
@@ -178,34 +160,12 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.0-flash
                         parts = candidates[0].get("content", {}).get("parts", [])
                         if parts and "text" in parts[0]:
                             return parts[0]["text"]
-                elif resp.status_code in [503, 429]:
-                    time.sleep(1.5)
-                    all_errors.append(f"REST v1 ({m}): HTTP {resp.status_code}")
-                    continue
                 else:
-                    all_errors.append(f"REST v1 ({m}): HTTP {resp.status_code}")
+                    model_errors[m] = f"HTTP {resp.status_code}: {resp.text[:250]}"
             except Exception as e:
-                all_errors.append(f"REST v1 Exc ({m}): {e}")
+                model_errors[m] = str(e)
 
-            # Strategy C2: Gemini REST API v1 (Plain text mode)
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1/models/{m}:generateContent?key={api_key}"
-                headers = {"Content-Type": "application/json"}
-                payload = {
-                    "contents": [{"parts": [{"text": prompt}]}]
-                }
-                resp = requests.post(url, headers=headers, json=payload, timeout=60)
-                if resp.status_code == 200:
-                    res_j = resp.json()
-                    candidates = res_j.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        if parts and "text" in parts[0]:
-                            return parts[0]["text"]
-            except Exception as e:
-                all_errors.append(f"REST v1 Plain Exc ({m}): {e}")
-
-            # Strategy D: Gemini REST API v1beta
+            # Strategy D: Gemini REST API v1beta (JSON mode)
             try:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
                 headers = {"Content-Type": "application/json"}
@@ -221,14 +181,32 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.0-flash
                         parts = candidates[0].get("content", {}).get("parts", [])
                         if parts and "text" in parts[0]:
                             return parts[0]["text"]
+                else:
+                    model_errors[m] = f"HTTP {resp.status_code}: {resp.text[:250]}"
             except Exception as e:
-                all_errors.append(f"REST v1beta Exc ({m}): {e}")
+                model_errors[m] = str(e)
 
-            break  # Break retry loop if non-transient
+            # Check transient error for retry delay
+            cur_err = model_errors.get(m, "")
+            if "503" in cur_err or "UNAVAILABLE" in cur_err or "429" in cur_err:
+                time.sleep(1.0)
+            else:
+                break
 
-    # If all models fail
-    summary_err = all_errors[-1] if all_errors else "All API calls failed."
-    raise Exception(f"Gemini API temporarily experiencing high server demand across models. Please retry in a few seconds. Details: {summary_err}")
+    # Analyze primary model error to give user exact actionable diagnosis
+    primary_m = clean_models[0]
+    first_err = model_errors.get(primary_m, "Unknown Error")
+
+    if "API_KEY_INVALID" in first_err or "API key not valid" in first_err or "400" in first_err:
+        raise Exception("Invalid Gemini API Key (HTTP 400). Please check your API key in the sidebar or get a free API key at https://aistudio.google.com/app/apikey")
+    elif "403" in first_err or "PERMISSION_DENIED" in first_err:
+        raise Exception("Gemini API Permission Denied (HTTP 403). Please ensure Generative Language API is enabled for your key at https://aistudio.google.com/app/apikey")
+    elif "429" in first_err or "RESOURCE_EXHAUSTED" in first_err or "Quota" in first_err:
+        raise Exception("Gemini API Rate Limit / Quota Exceeded (HTTP 429). Please wait 1 minute or use a new free API key from https://aistudio.google.com/app/apikey")
+    elif "503" in first_err or "UNAVAILABLE" in first_err:
+        raise Exception("Google Gemini servers are currently experiencing temporary high traffic (HTTP 503). Please wait 5-10 seconds and click 'Analyze Profile' again.")
+    else:
+        raise Exception(f"Gemini API Error for '{primary_m}': {first_err}")
 
 
 def generate_interview_report(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-2.0-flash") -> dict:
