@@ -131,8 +131,19 @@ with st.sidebar:
     st.image("https://img.icons8.com/color/96/000000/resume.png", width=64)
     st.markdown("### ⚙️ Application Settings")
 
+    # Check for API key in Streamlit secrets
+    secret_key = ""
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            secret_key = st.secrets["GEMINI_API_KEY"]
+        elif "GROQ_API_KEY" in st.secrets:
+            secret_key = st.secrets["GROQ_API_KEY"]
+    except Exception:
+        pass
+
     api_key_input = st.text_input(
         "🔑 Enter API Key",
+        value=secret_key,
         type="password",
         placeholder="AQ.Ab...... or AIza... / gsk_...",
         help="Paste your Google Gemini API Key (starts with AQ.Ab... or AIza...) or Groq API key (starts with gsk_).",
