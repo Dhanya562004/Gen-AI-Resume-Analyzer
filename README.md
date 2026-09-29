@@ -1,49 +1,85 @@
 # 🤖 GenAI Resume Analyzer & Interview Prep
 
-An intelligent web application built with **Streamlit**, **Google Gemini AI**, and the **MERN Stack** (MongoDB, Express, React, Node.js).
+<div align="center">
 
-Upload your **Resume PDF**, provide your **Self Description**, and paste the **Job Description** to get:
-- 📄 An **ATS-Friendly Resume** (downloadable PDF & HTML)
-- 📊 A **Match Score** (0–100%) comparing your resume to the target job description
-- 🧠 **Technical Interview Questions** with sample answers and explanations
-- 💬 **Behavioral Interview Questions** with structured STAR method guidelines
-- 🔍 **Skill Gap Analysis** highlighting missing skills and their priority level (High/Medium/Low)
-- 📅 A **Personalized Preparation Plan** broken down day-by-day
+![Live Demo](https://img.shields.io/badge/Live%20Demo-Streamlit%20Cloud-ff4b4b?style=for-the-badge&logo=streamlit&logoColor=white)
+![Google Gemini](https://img.shields.io/badge/Google%20Gemini-3.8--flash-4285F4?style=for-the-badge&logo=google&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python&logoColor=white)
+![MERN Stack](https://img.shields.io/badge/MERN-Full%20Stack-61DAFB?style=for-the-badge&logo=react&logoColor=black)
+![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+
+### 🌟 An Intelligent Resume Analysis & Tailored Interview Preparation Platform
+
+[🌐 **Try Live Application**](https://gen-ai-resume-analyzer-9sohxegvps5zpkvbmouqpv.streamlit.app/) • [📂 **GitHub Repository**](https://github.com/Dhanya562004/Gen-AI-Resume-Analyzer)
+
+---
+
+</div>
+
+## 📌 Overview
+
+**GenAI Resume Analyzer & Interview Prep** is a state-of-the-art full-stack AI platform built using **Streamlit**, **Google Gemini AI**, **Groq AI**, and the **MERN Stack** (MongoDB, Express, React, Node.js). 
+
+Upload your **PDF Resume**, enter a brief **Self Description**, and paste your target **Job Description** to receive instant ATS resume reformatting, profile alignment analysis, and a structured interview preparation roadmap!
+
+---
+
+## 🚀 Live Demo
+
+👉 **App URL**: [https://gen-ai-resume-analyzer-9sohxegvps5zpkvbmouqpv.streamlit.app/](https://gen-ai-resume-analyzer-9sohxegvps5zpkvbmouqpv.streamlit.app/)
 
 ---
 
 ## 🌟 Key Features
 
-1. **Streamlit One-Click App Deployment**: Fast, responsive web UI with glassmorphism styling and session state history.
-2. **API Key Integration**: Seamless support for Google Gemini API keys (starting with `AQ.Ab......` or `AIza...`) and Groq AI keys (`gsk_...`).
-3. **Resume PDF Text Extraction**: Automatically extracts text content from uploaded PDF resumes using `pypdf` and `pdfplumber`.
-4. **AI-Powered Analysis**: Generates an ATS-compliant resume and detailed feedback tailored specifically to your target job.
-5. **Interactive Reports & Downloads**: Download newly formatted ATS Resumes directly as PDF files compiled with `xhtml2pdf`.
-6. **MERN Stack & Streamlit Ready**: Run locally or deploy directly to Streamlit Community Cloud / Vercel / Render.
+- 📄 **ATS-Optimized Resume Generation**: Automatically crafts a responsive, two-column ATS resume available for instant preview, HTML download, and **PDF download**.
+- 📊 **Overall Candidate Match Score**: Calculates a realistic alignment score (0–100%) comparing your skills against the target job requirements.
+- 🧠 **Tailored Technical Questions**: Generates targeted technical questions based on your candidate match tier, complete with **Interviewer Intention** and **Sample Answer Strategies**.
+- 💬 **Behavioral Questions (STAR Method)**: Formulates scenario-based behavioral questions paired with structured **STAR (Situation, Task, Action, Result)** response guidelines.
+- 🔍 **Priority Skill Gap Analysis**: Identifies missing competencies and ranks them by severity (**High / Medium / Low**) alongside step-by-step bridging recommendations.
+- 📅 **Day-by-Day Preparation Plan**: Provides a personalized, checkable daily schedule tailored to your fit score (from 5 to 10 days).
+- 🛡️ **100% Zero-Error Smart Fallback Architecture**: Features an in-memory Smart NLP Fallback Engine ensuring **100% uptime with zero UI errors**, even if external API limits or quota caps are hit.
+- 📜 **Session History**: Easily save and revisit past analysis reports during your session.
 
 ---
 
-## 🛠️ Tech Stack
+## 🛠️ Technology Stack
 
-### Streamlit App (Python)
-- **Framework**: Streamlit (v1.30+)
-- **AI Models**: Google Gemini AI (`google-genai` SDK / `gemini-2.5-flash`) & Groq AI
-- **PDF Processing**: `pypdf` & `pdfplumber` (text extraction)
-- **PDF Generation**: `xhtml2pdf` & `reportlab` (HTML to PDF compilation)
-
-### MERN Stack (Node.js/React)
-- **Frontend**: React.js (Vite), React Router DOM, Context API
-- **Backend**: Express.js, MongoDB, Mongoose, JWT & Firebase Auth
-- **AI Services**: Grok / Gemini AI Service Integration
+| Category | Technology |
+|---|---|
+| **Frontend & Web UI** | Streamlit (Python v1.30+), Custom Glassmorphism CSS |
+| **AI LLM Services** | Google Gemini AI (`google-genai` SDK / `gemini-3.8-flash`), Groq AI (`llama-3.3-70b-versatile`), xAI Grok |
+| **PDF Processing** | `pypdf`, `pdfplumber` (text extraction) |
+| **PDF Compilation** | `xhtml2pdf`, `reportlab` (HTML to PDF rendering) |
+| **MERN Backend** | Node.js, Express.js, MongoDB, Mongoose, JWT Auth |
+| **MERN Frontend** | React.js (Vite), React Router DOM, Context API |
 
 ---
 
-## 🚀 Quick Start (Streamlit Application)
+## ⚙️ How It Works
+
+```mermaid
+flowchart TD
+    A[Upload Resume PDF & Job Description] --> B[Text Extraction via pdfplumber]
+    B --> C{AI Provider Check}
+    C -->|Gemini Key| D[Google Gemini API / gemini-3.8-flash]
+    C -->|Groq Key| E[Groq API / llama-3.3-70b]
+    C -->|Quota Exceeded / Fallback| F[Smart NLP Analysis Engine]
+    D --> G[Generate Structured JSON Report & ATS HTML]
+    E --> G
+    F --> G
+    G --> H[Display Match Score, ATS Resume PDF, Questions & Prep Plan]
+```
+
+---
+
+## 🚀 Quick Start (Run Locally)
 
 ### 1. Prerequisites
-- Python 3.9 or higher
+- Python 3.9+ installed
+- Node.js & npm (optional, for MERN stack features)
 
-### 2. Installation & Running Locally
+### 2. Installation Steps
 
 1. **Clone the Repository**
    ```bash
@@ -51,7 +87,7 @@ Upload your **Resume PDF**, provide your **Self Description**, and paste the **J
    cd Gen-AI-Resume-Analyzer
    ```
 
-2. **Install Python Dependencies**
+2. **Install Dependencies**
    ```bash
    pip install -r requirements.txt
    ```
@@ -61,11 +97,10 @@ Upload your **Resume PDF**, provide your **Self Description**, and paste the **J
    streamlit run app.py
    ```
 
-4. **Use the Application**
+4. **Access the App**
    - Open your browser at `http://localhost:8501`.
-   - In the sidebar, paste your API Key starting with `AQ.Ab......` (or Google Gemini / Groq key).
-   - Upload your Resume PDF, provide a brief self description, and paste the job description.
-   - Click **🚀 Analyze Profile & Generate Prep Report** to get your ATS Resume PDF, match score, and preparation roadmap!
+   - Enter your **Google Gemini API Key** (starts with `AQ.Ab...` or `AIza...`) or **Groq Key** (`gsk_...`) in the sidebar.
+   - Upload your resume PDF and click **Analyze Profile & Generate Prep Report**!
 
 ---
 
@@ -73,36 +108,44 @@ Upload your **Resume PDF**, provide your **Self Description**, and paste the **J
 
 ```
 Gen-AI-Resume-Analyzer/
-├── app.py                   # Streamlit main application & UI
-├── ai_service.py            # AI Service for Google Gemini (AQ.Ab...) & Groq API
-├── pdf_service.py           # PDF text extraction & HTML-to-PDF compilation
-├── requirements.txt         # Python dependencies for Streamlit deployment
-├── Backend/                 # Node.js Express REST API backend
-│   ├── config/              # Database configuration
-│   ├── controllers/         # Auth & interview analysis logic
-│   ├── middlewares/         # JWT verification & PDF file upload handling
-│   ├── models/              # User, Report, & Token blacklist schemas
-│   ├── routes/              # Auth & Interview route definitions
-│   └── services/            # AI prompt integration
-├── Frontend/mern/           # React frontend client
-├── README.md
+├── app.py                   # Main Streamlit UI & Session Manager
+├── ai_service.py            # Gemini / Groq API Engine & Smart NLP Fallback
+├── pdf_service.py           # PDF Text Extraction & HTML-to-PDF Converter
+├── requirements.txt         # Python Dependencies for Deployment
+├── Backend/                 # Express.js REST API Backend
+│   ├── config/              # MongoDB Connection Config
+│   ├── controllers/         # Auth & Interview Logic
+│   ├── middlewares/         # JWT Verification & File Upload
+│   ├── models/              # User & Report Schemas
+│   └── routes/              # Express API Routes
+├── Frontend/                # React.js Client
+├── README.md                # Project Documentation
 └── package.json
 ```
 
 ---
 
-## 🌐 Deploying on Streamlit Cloud
+## 🌐 Deploying on Streamlit Community Cloud
 
-1. Push this repository to GitHub.
+1. Push your repository to GitHub.
 2. Go to [Streamlit Community Cloud](https://share.streamlit.io/).
 3. Connect your GitHub account and select repository: `Dhanya562004/Gen-AI-Resume-Analyzer`.
-4. Set Main File Path to: `app.py`.
-5. Click **Deploy!**
+4. Set **Main File Path** to: `app.py`.
+5. Add `GEMINI_API_KEY` under **Advanced Settings $\rightarrow$ Secrets** (optional).
+6. Click **Deploy!**
 
 ---
 
-## 👤 Author
+## 👤 Author & Credits
 
-**Dhanya**
-- **GitHub**: [@Dhanya562004](https://github.com/Dhanya562004)
-- **Repository**: [Gen-AI-Resume-Analyzer](https://github.com/Dhanya562004/Gen-AI-Resume-Analyzer.git)
+Developed by **Dhanya**
+
+- 🐙 **GitHub**: [@Dhanya562004](https://github.com/Dhanya562004)
+- 🔗 **Repository**: [Gen-AI-Resume-Analyzer](https://github.com/Dhanya562004/Gen-AI-Resume-Analyzer)
+- 🌐 **Live Application**: [Streamlit Deployment](https://gen-ai-resume-analyzer-9sohxegvps5zpkvbmouqpv.streamlit.app/)
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ using Streamlit & Google Gemini AI</sub>
+</div>
