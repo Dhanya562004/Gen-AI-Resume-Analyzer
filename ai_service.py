@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 import warnings
 import requests
 
@@ -39,9 +40,9 @@ def clean_json_string(text: str) -> str:
     return text
 
 
-def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-3.8-flash") -> str:
+def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.0-flash") -> str:
     """
-    Calls Google Gemini API, Groq, or xAI API depending on key type.
+    Calls Google Gemini API, Groq, or xAI API with automatic retries on 503 (high demand) and 429 errors.
     Supports Google Gemini API keys starting with 'AQ.Ab...', 'AIza...', etc.
     Reads GEMINI_API_KEY from environment if api_key is empty.
     """
@@ -93,8 +94,16 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-3.8-flash
         return res_json["choices"][0]["message"]["content"]
 
     # 3. Google Gemini API
-    # Candidate models prioritized with gemini-3.8-flash first
-    candidate_models = [model_name, "gemini-3.8-flash", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    # High-capacity candidate models list
+    candidate_models = [
+        model_name,
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-2.5-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+    ]
     clean_models = []
     for m in candidate_models:
         if m:
@@ -105,112 +114,124 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-3.8-flash
     all_errors = []
 
     for m in clean_models:
-        # Strategy A1: google-genai SDK (JSON mode)
-        if HAS_GENAI_SDK:
+        for attempt in range(2):
+            # Strategy A1: google-genai SDK (JSON mode)
+            if HAS_GENAI_SDK:
+                try:
+                    client = genai.Client(api_key=api_key)
+                    response = client.models.generate_content(
+                        model=m,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json"
+                        ),
+                    )
+                    if response and response.text:
+                        return response.text
+                except Exception as e:
+                    err_str = str(e)
+                    all_errors.append(f"SDK JSON ({m}, retry {attempt}): {err_str}")
+                    if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
+                        time.sleep(1.5)
+                        continue
+
+                # Strategy A2: google-genai SDK (Plain text fallback)
+                try:
+                    client = genai.Client(api_key=api_key)
+                    response = client.models.generate_content(
+                        model=m,
+                        contents=prompt,
+                    )
+                    if response and response.text:
+                        return response.text
+                except Exception as e:
+                    err_str = str(e)
+                    all_errors.append(f"SDK Plain ({m}, retry {attempt}): {err_str}")
+
+            # Strategy B: Legacy google-generativeai SDK
+            if HAS_LEGACY_SDK:
+                try:
+                    genai_legacy.configure(api_key=api_key)
+                    legacy_model = genai_legacy.GenerativeModel(
+                        model_name=m,
+                        generation_config={"response_mime_type": "application/json"}
+                    )
+                    resp = legacy_model.generate_content(prompt)
+                    if resp and resp.text:
+                        return resp.text
+                except Exception as e:
+                    all_errors.append(f"Legacy SDK ({m}): {e}")
+
+            # Strategy C1: Gemini REST API v1 (JSON mode)
             try:
-                client = genai.Client(api_key=api_key)
-                response = client.models.generate_content(
-                    model=m,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json"
-                    ),
-                )
-                if response and response.text:
-                    return response.text
+                url = f"https://generativelanguage.googleapis.com/v1/models/{m}:generateContent?key={api_key}"
+                headers = {"Content-Type": "application/json"}
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"responseMimeType": "application/json"}
+                }
+                resp = requests.post(url, headers=headers, json=payload, timeout=60)
+                if resp.status_code == 200:
+                    res_j = resp.json()
+                    candidates = res_j.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts and "text" in parts[0]:
+                            return parts[0]["text"]
+                elif resp.status_code in [503, 429]:
+                    time.sleep(1.5)
+                    all_errors.append(f"REST v1 ({m}): HTTP {resp.status_code}")
+                    continue
+                else:
+                    all_errors.append(f"REST v1 ({m}): HTTP {resp.status_code}")
             except Exception as e:
-                all_errors.append(f"SDK JSON ({m}): {e}")
+                all_errors.append(f"REST v1 Exc ({m}): {e}")
 
-            # Strategy A2: google-genai SDK (plain text fallback)
+            # Strategy C2: Gemini REST API v1 (Plain text mode)
             try:
-                client = genai.Client(api_key=api_key)
-                response = client.models.generate_content(
-                    model=m,
-                    contents=prompt,
-                )
-                if response and response.text:
-                    return response.text
+                url = f"https://generativelanguage.googleapis.com/v1/models/{m}:generateContent?key={api_key}"
+                headers = {"Content-Type": "application/json"}
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}]
+                }
+                resp = requests.post(url, headers=headers, json=payload, timeout=60)
+                if resp.status_code == 200:
+                    res_j = resp.json()
+                    candidates = res_j.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts and "text" in parts[0]:
+                            return parts[0]["text"]
             except Exception as e:
-                all_errors.append(f"SDK Plain ({m}): {e}")
+                all_errors.append(f"REST v1 Plain Exc ({m}): {e}")
 
-        # Strategy B: Legacy google-generativeai SDK
-        if HAS_LEGACY_SDK:
+            # Strategy D: Gemini REST API v1beta
             try:
-                genai_legacy.configure(api_key=api_key)
-                legacy_model = genai_legacy.GenerativeModel(
-                    model_name=m,
-                    generation_config={"response_mime_type": "application/json"}
-                )
-                resp = legacy_model.generate_content(prompt)
-                if resp and resp.text:
-                    return resp.text
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
+                headers = {"Content-Type": "application/json"}
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"responseMimeType": "application/json"}
+                }
+                resp = requests.post(url, headers=headers, json=payload, timeout=60)
+                if resp.status_code == 200:
+                    res_j = resp.json()
+                    candidates = res_j.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts and "text" in parts[0]:
+                            return parts[0]["text"]
             except Exception as e:
-                all_errors.append(f"Legacy SDK ({m}): {e}")
+                all_errors.append(f"REST v1beta Exc ({m}): {e}")
 
-        # Strategy C1: Gemini REST API v1 (JSON mode)
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1/models/{m}:generateContent?key={api_key}"
-            headers = {"Content-Type": "application/json"}
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"responseMimeType": "application/json"}
-            }
-            resp = requests.post(url, headers=headers, json=payload, timeout=60)
-            if resp.status_code == 200:
-                res_j = resp.json()
-                candidates = res_j.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts and "text" in parts[0]:
-                        return parts[0]["text"]
-            else:
-                all_errors.append(f"REST v1 ({m}): HTTP {resp.status_code} {resp.text}")
-        except Exception as e:
-            all_errors.append(f"REST v1 Exc ({m}): {e}")
+            break  # Break retry loop if non-transient
 
-        # Strategy C2: Gemini REST API v1 (Plain text mode)
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1/models/{m}:generateContent?key={api_key}"
-            headers = {"Content-Type": "application/json"}
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}]
-            }
-            resp = requests.post(url, headers=headers, json=payload, timeout=60)
-            if resp.status_code == 200:
-                res_j = resp.json()
-                candidates = res_j.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts and "text" in parts[0]:
-                        return parts[0]["text"]
-        except Exception as e:
-            all_errors.append(f"REST v1 Plain Exc ({m}): {e}")
-
-        # Strategy D: Gemini REST API v1beta
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
-            headers = {"Content-Type": "application/json"}
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"responseMimeType": "application/json"}
-            }
-            resp = requests.post(url, headers=headers, json=payload, timeout=60)
-            if resp.status_code == 200:
-                res_j = resp.json()
-                candidates = res_j.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts and "text" in parts[0]:
-                        return parts[0]["text"]
-        except Exception as e:
-            all_errors.append(f"REST v1beta Exc ({m}): {e}")
-
-    # If all models and strategies fail
-    last_err = all_errors[0] if all_errors else "Unknown API Error"
-    raise Exception(f"Gemini API Request Failed across models ({', '.join(clean_models)}). Details: {last_err}")
+    # If all models fail
+    summary_err = all_errors[-1] if all_errors else "All API calls failed."
+    raise Exception(f"Gemini API temporarily experiencing high server demand across models. Please retry in a few seconds. Details: {summary_err}")
 
 
-def generate_interview_report(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-3.8-flash") -> dict:
+def generate_interview_report(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-2.0-flash") -> dict:
     """
     Generates structured interview report JSON from candidate resume, self description, and job description.
     """
@@ -292,7 +313,7 @@ Important:
     return data
 
 
-def generate_resume_html(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-3.8-flash") -> str:
+def generate_resume_html(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-2.0-flash") -> str:
     """
     Generates ATS-Friendly Resume HTML string tailored to target job.
     """
