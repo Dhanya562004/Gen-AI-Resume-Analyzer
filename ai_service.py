@@ -32,7 +32,6 @@ def clean_json_string(text: str) -> str:
     if text.endswith("```"):
         text = text[:-3]
     text = text.strip()
-    # Try finding first { and last }
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -40,7 +39,7 @@ def clean_json_string(text: str) -> str:
     return text
 
 
-def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.5-flash") -> str:
+def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-3.8-flash") -> str:
     """
     Calls Google Gemini API, Groq, or xAI API depending on key type.
     Supports Google Gemini API keys starting with 'AQ.Ab...', 'AIza...', etc.
@@ -93,19 +92,20 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.5-flash
         res_json = resp.json()
         return res_json["choices"][0]["message"]["content"]
 
-    # 3. Google Gemini API (Keys starting with AQ.Ab..., AIza..., etc.)
-    # Fallback model order prioritizing latest fast models
-    candidate_models = [model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    # 3. Google Gemini API
+    # Candidate models prioritized with gemini-3.8-flash first
+    candidate_models = [model_name, "gemini-3.8-flash", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
     clean_models = []
     for m in candidate_models:
-        if m and m not in clean_models:
-            clean_models.append(m)
+        if m:
+            m_norm = m.replace("models/", "").strip()
+            if m_norm and m_norm not in clean_models:
+                clean_models.append(m_norm)
 
-    primary_error = None
     all_errors = []
 
     for m in clean_models:
-        # Strategy A: Official google-genai SDK (v1 / v2 SDK)
+        # Strategy A1: google-genai SDK (JSON mode)
         if HAS_GENAI_SDK:
             try:
                 client = genai.Client(api_key=api_key)
@@ -119,12 +119,21 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.5-flash
                 if response and response.text:
                     return response.text
             except Exception as e:
-                err_msg = str(e)
-                if not primary_error:
-                    primary_error = f"Gemini SDK ({m}): {err_msg}"
-                all_errors.append(f"SDK ({m}): {err_msg}")
+                all_errors.append(f"SDK JSON ({m}): {e}")
 
-        # Strategy B: Legacy google-generativeai SDK fallback
+            # Strategy A2: google-genai SDK (plain text fallback)
+            try:
+                client = genai.Client(api_key=api_key)
+                response = client.models.generate_content(
+                    model=m,
+                    contents=prompt,
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                all_errors.append(f"SDK Plain ({m}): {e}")
+
+        # Strategy B: Legacy google-generativeai SDK
         if HAS_LEGACY_SDK:
             try:
                 genai_legacy.configure(api_key=api_key)
@@ -138,7 +147,7 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.5-flash
             except Exception as e:
                 all_errors.append(f"Legacy SDK ({m}): {e}")
 
-        # Strategy C: Gemini REST API v1
+        # Strategy C1: Gemini REST API v1 (JSON mode)
         try:
             url = f"https://generativelanguage.googleapis.com/v1/models/{m}:generateContent?key={api_key}"
             headers = {"Content-Type": "application/json"}
@@ -155,10 +164,27 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.5-flash
                     if parts and "text" in parts[0]:
                         return parts[0]["text"]
             else:
-                err_text = f"HTTP {resp.status_code}: {resp.text}"
-                all_errors.append(f"REST v1 ({m}): {err_text}")
+                all_errors.append(f"REST v1 ({m}): HTTP {resp.status_code} {resp.text}")
         except Exception as e:
             all_errors.append(f"REST v1 Exc ({m}): {e}")
+
+        # Strategy C2: Gemini REST API v1 (Plain text mode)
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1/models/{m}:generateContent?key={api_key}"
+            headers = {"Content-Type": "application/json"}
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}]
+            }
+            resp = requests.post(url, headers=headers, json=payload, timeout=60)
+            if resp.status_code == 200:
+                res_j = resp.json()
+                candidates = res_j.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts and "text" in parts[0]:
+                        return parts[0]["text"]
+        except Exception as e:
+            all_errors.append(f"REST v1 Plain Exc ({m}): {e}")
 
         # Strategy D: Gemini REST API v1beta
         try:
@@ -176,18 +202,15 @@ def call_ai_model(api_key: str, prompt: str, model_name: str = "gemini-2.5-flash
                     parts = candidates[0].get("content", {}).get("parts", [])
                     if parts and "text" in parts[0]:
                         return parts[0]["text"]
-            else:
-                err_text = f"HTTP {resp.status_code}: {resp.text}"
-                all_errors.append(f"REST v1beta ({m}): {err_text}")
         except Exception as e:
             all_errors.append(f"REST v1beta Exc ({m}): {e}")
 
-    # If all candidate models and strategies fail
-    err_detail = primary_error or (all_errors[0] if all_errors else "Unknown error")
-    raise Exception(f"Gemini API Request Failed across models ({', '.join(clean_models)}). Detail: {err_detail}")
+    # If all models and strategies fail
+    last_err = all_errors[0] if all_errors else "Unknown API Error"
+    raise Exception(f"Gemini API Request Failed across models ({', '.join(clean_models)}). Details: {last_err}")
 
 
-def generate_interview_report(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-2.5-flash") -> dict:
+def generate_interview_report(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-3.8-flash") -> dict:
     """
     Generates structured interview report JSON from candidate resume, self description, and job description.
     """
@@ -269,7 +292,7 @@ Important:
     return data
 
 
-def generate_resume_html(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-2.5-flash") -> str:
+def generate_resume_html(api_key: str, resume_text: str, self_description: str, job_description: str, model_name: str = "gemini-3.8-flash") -> str:
     """
     Generates ATS-Friendly Resume HTML string tailored to target job.
     """
